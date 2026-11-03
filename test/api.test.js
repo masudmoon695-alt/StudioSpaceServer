@@ -106,7 +106,7 @@ function createReviewApi({ studioExists = true } = {}) {
   const collections = {
     reviews: {
       findOne: async (filter) => savedReviews.find((review) =>
-        review.studioId === filter.studioId && review.userId === filter.userId) || null,
+        review.studioId === filter.studioId && review.userEmail === filter.userEmail) || null,
       insertOne: async (review) => {
         const insertedId = new ObjectId();
         savedReviews.push({ ...review, _id: insertedId });
@@ -208,7 +208,7 @@ test('authenticated review submissions persist reviewer identity from the sessio
     assert.equal(result.review.rating, 5);
     assert.equal(result.review.comment, 'A lovely space.');
     assert.equal(result.review.studioId, api.studioId);
-    assert.equal(result.review.userId, 'guest@example.com');
+    assert.equal(result.review.userEmail, 'guest@example.com');
     assert.equal(typeof result.review.createdAt, 'string');
     assert.equal(api.savedReviews.length, 1);
     assert.equal(api.savedReviews[0].userName, 'Guest Reviewer');

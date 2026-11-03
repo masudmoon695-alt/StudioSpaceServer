@@ -84,6 +84,6 @@ export function errorHandler(err, req, res, next) {
   if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
     return res.status(400).json({ success: false, message: 'Invalid JSON body.' });
   }
-  console.error(err);
+  console.error('API error:', err?.name, err?.code, err?.codeName, err?.message, JSON.stringify(err?.errInfo ?? null));
   return res.status(500).json({ success: false, message: 'Something went wrong on the server.' });
 }

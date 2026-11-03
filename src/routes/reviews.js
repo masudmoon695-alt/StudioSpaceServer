@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ObjectId } from 'mongodb';
+import { MongoServerError, ObjectId } from 'mongodb';
 import { HttpError } from '../errors.js';
 import { verifyJWT } from '../middleware/auth.js';
 
@@ -37,12 +37,12 @@ export function createReviewsRouter(db) {
       const studio = await studios.findOne({ _id });
       if (!studio) throw new HttpError(404, 'Studio not found');
 
-      const existing = await reviews.findOne({ studioId, userId: req.user.email });
+      const existing = await reviews.findOne({ studioId, userEmail: req.user.email });
       if (existing) throw new HttpError(409, 'You have already reviewed this studio');
 
       const review = {
         studioId,
-        userId: req.user.email,
+        userEmail: req.user.email,
         userName: req.user.name,
         rating,
         comment,
@@ -50,21 +50,35 @@ export function createReviewsRouter(db) {
       };
       const { insertedId } = await reviews.insertOne(review);
 
-      const [stats] = await reviews.aggregate([
-        { $match: { studioId } },
-        { $group: { _id: null, average: { $avg: '$rating' }, count: { $sum: 1 } } },
-      ]).toArray();
-      const reviewCount = stats?.count ?? 0;
-      const averageRating = stats ? Math.round(stats.average * 10) / 10 : 0;
-      await studios.updateOne(
-        { _id },
-        { $set: { rating: averageRating, reviewCount, updatedAt: new Date() } },
-      );
+      // Update the studio's rating/reviewCount in an isolated try/catch so a
+      // failure there can never turn a successfully saved review into a 500.
+      try {
+        const [stats] = await reviews.aggregate([
+          { $match: { studioId } },
+          { $group: { _id: null, average: { $avg: '$rating' }, count: { $sum: 1 } } },
+        ]).toArray();
+        const reviewCount = stats?.count ?? 0;
+        const averageRating = stats ? Math.round(stats.average * 10) / 10 : 0;
+        await studios.updateOne(
+          { _id },
+          { $set: { rating: averageRating, reviewCount, updatedAt: new Date() } },
+        );
+      } catch (updateError) {
+        console.error('Failed to update studio rating/reviewCount after saving review:', updateError);
+      }
 
       res.status(201).json({
         review: { ...review, _id: insertedId.toString() },
       });
     } catch (error) {
+      if (error instanceof MongoServerError) {
+        if (error.code === 11000) {
+          return next(new HttpError(409, 'You have already reviewed this studio'));
+        }
+        if (error.code === 121) {
+          return next(new HttpError(400, 'Review could not be saved: it does not satisfy the review schema.'));
+        }
+      }
       next(error);
     }
   });
