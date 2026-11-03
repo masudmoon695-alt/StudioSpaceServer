@@ -1,31 +1,50 @@
 import { MongoClient } from 'mongodb';
-import { createApp } from '../src/app.js';
+import { createApp } from '../src/createApp.js';
 
 const globalCache = globalThis;
-if (!globalCache.__studioSpace) {
-  globalCache.__studioSpace = { appPromise: null };
-}
-const cache = globalCache.__studioSpace;
 
-async function buildApp() {
+async function getDb() {
+  if (globalCache._mongoDb) {
+    return globalCache._mongoDb;
+  }
+
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error('MONGODB_URI is not set');
 
-  const client = new MongoClient(uri);
-  await client.connect();
-  const db = client.db(process.env.DB_NAME || undefined);
-  return createApp(db);
+  if (!globalCache._mongoClient) {
+    const client = new MongoClient(uri);
+    await client.connect();
+    globalCache._mongoClient = client;
+  }
+
+  const db = globalCache._mongoClient.db(process.env.DB_NAME || undefined);
+  globalCache._mongoDb = db;
+  return db;
+}
+
+async function getApp() {
+  if (globalCache._expressApp) {
+    return globalCache._expressApp;
+  }
+
+  if (!globalCache._appPromise) {
+    globalCache._appPromise = (async () => {
+      const db = await getDb();
+      const app = createApp(db);
+      globalCache._expressApp = app;
+      return app;
+    })().catch((error) => {
+      globalCache._appPromise = null;
+      throw error;
+    });
+  }
+
+  return globalCache._appPromise;
 }
 
 export default async function handler(req, res) {
   try {
-    if (!cache.appPromise) {
-      cache.appPromise = buildApp().catch((error) => {
-        cache.appPromise = null;
-        throw error;
-      });
-    }
-    const app = await cache.appPromise;
+    const app = await getApp();
     return app(req, res);
   } catch (error) {
     console.error('Startup failed:', error);

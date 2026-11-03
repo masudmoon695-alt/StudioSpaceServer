@@ -35,7 +35,7 @@ before(async () => {
     .sign(privateKey);
 
   process.env.JWKS_URL = `http://127.0.0.1:${jwksServer.address().port}/jwks`;
-  ({ createApp } = await import('../src/app.js'));
+  ({ createApp } = await import('../src/createApp.js'));
   const db = { collection: () => ({}) };
   server = createServer(createApp(db));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
