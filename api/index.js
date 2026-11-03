@@ -1,12 +1,12 @@
 import { MongoClient } from 'mongodb';
 import { createApp } from '../src/createApp.js';
 
+// Vercel serverless entrypoint. Everything is cached on globalThis so warm
+// invocations reuse the same MongoDB connection and the same Express app.
 const globalCache = globalThis;
 
 async function getDb() {
-  if (globalCache._mongoDb) {
-    return globalCache._mongoDb;
-  }
+  if (globalCache._mongoDb) return globalCache._mongoDb;
 
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error('MONGODB_URI is not set');
@@ -17,15 +17,14 @@ async function getDb() {
     globalCache._mongoClient = client;
   }
 
-  const db = globalCache._mongoClient.db(process.env.DB_NAME || undefined);
-  globalCache._mongoDb = db;
-  return db;
+  // Never fall back to the driver default ("test"). Use the real database name.
+  const dbName = process.env.MONGODB_DATABASE || process.env.DB_NAME || 'studiospacedb';
+  globalCache._mongoDb = globalCache._mongoClient.db(dbName);
+  return globalCache._mongoDb;
 }
 
 async function getApp() {
-  if (globalCache._expressApp) {
-    return globalCache._expressApp;
-  }
+  if (globalCache._expressApp) return globalCache._expressApp;
 
   if (!globalCache._appPromise) {
     globalCache._appPromise = (async () => {
@@ -34,7 +33,7 @@ async function getApp() {
       globalCache._expressApp = app;
       return app;
     })().catch((error) => {
-      globalCache._appPromise = null;
+      globalCache._appPromise = null; // retry on the next request
       throw error;
     });
   }
@@ -48,6 +47,10 @@ export default async function handler(req, res) {
     return app(req, res);
   } catch (error) {
     console.error('Startup failed:', error);
-    res.status(500).json({ success: false, message: 'Server failed to start.' });
+    return res.status(500).json({
+      success: false,
+      error: 'Server failed to start.',
+      message: 'Server failed to start.',
+    });
   }
 }
